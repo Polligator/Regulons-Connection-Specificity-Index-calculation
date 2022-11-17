@@ -1,0 +1,72 @@
+
+
+library(tidyverse)
+calculate_csi <- function(regulonAUC,
+                          calc_extended = FALSE,
+                          verbose = FALSE) {
+
+    compare_pcc <- function(vector_of_pcc, pcc) {
+        if (vector_of_pcc>=pcc) {
+            return(1)
+        } else {
+            return(0)
+        }
+    }
+
+    calc_csi <- function(reg, reg2, pearson_cor) {
+        test_cor <- pearson_cor[reg, reg2]-0.05
+        total_n <- ncol(pearson_cor)
+        pearson_cor_sub1 <- subset(pearson_cor, rownames(pearson_cor) == reg)
+        pearson_cor_sub2 <- subset(pearson_cor,rownames(pearson_cor) == reg2 )
+        sum1 <- apply(pearson_cor_sub1, MARGIN = 2, FUN = compare_pcc, pcc = test_cor)
+        sum2 <- apply(pearson_cor_sub2, MARGIN = 2, FUN = compare_pcc, pcc = test_cor)
+        union <- c(names(sum1[sum1 == 1]), names(sum2[sum2 == 1]))
+       fraction_lower = 1 - (length(unique(union)) / total_n)
+        return(fraction_lower)
+    }
+
+    regulonAUC_sub <- regulonAUC@assays@data@listData$AUC
+
+    if (calc_extended == TRUE) {
+        regulonAUC_sub <- subset(regulonAUC_sub, grepl("extended", rownames(regulonAUC_sub)))
+    } else if (calc_extended == FALSE) {
+        regulonAUC_sub <- subset(regulonAUC_sub, !grepl("extended", rownames(regulonAUC_sub)))
+    }
+    
+    regulonAUC_sub <- t(regulonAUC_sub)
+    pearson_cor <- cor(regulonAUC_sub)
+    pearson_cor_df <- as.data.frame(pearson_cor)
+    pearson_cor_df$regulon_1 <- rownames(pearson_cor_df)
+    pearson_cor_long <- pearson_cor_df %>%
+        gather(regulon_2, pcc, -regulon_1) %>%
+        mutate("regulon_pair" = paste(regulon_1, regulon_2, sep = "_"))
+
+    regulon_names <- unique(colnames(pearson_cor))
+    num_of_calculations <- length(regulon_names) * length(regulon_names)
+    csi_regulons <- data.frame(matrix(nrow = num_of_calculations, ncol = 3))
+    colnames(csi_regulons) <- c(
+        "regulon_1",
+        "regulon_2",
+        "CSI"
+    )
+
+    num_regulons <- length(regulon_names)
+
+    f <- 0
+    for (reg in regulon_names) {
+        ## Check if user wants to print info
+        if (verbose == TRUE) {
+            print(reg)
+        }
+        for (reg2 in regulon_names) {
+            f <- f + 1
+
+            fraction_lower <- calc_csi(reg, reg2, pearson_cor)
+
+            csi_regulons[f, ] <- c(reg, reg2, fraction_lower)
+        }
+    }
+    csi_regulons$CSI <- as.numeric(csi_regulons$CSI)
+    return(csi_regulons)
+}
+
